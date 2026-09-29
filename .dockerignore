@@ -1,0 +1,9 @@
+node_modules
+.next
+backend/target
+.git
+.gitignore
+.gemini
+scratch
+*.log
+.env.local

@@ -1,0 +1,32 @@
+# Node.js / Next.js
+node_modules/
+.next/
+out/
+build/
+dist/
+
+# Java / Maven
+backend/target/
+*.class
+*.jar
+*.war
+*.ear
+*.zip
+*.tar.gz
+*.rar
+
+# Environment files
+.env*.local
+.env
+
+# IDE & OS
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db
+
+# Gemini / Scratch
+.gemini/
+scratch/
+*.log
