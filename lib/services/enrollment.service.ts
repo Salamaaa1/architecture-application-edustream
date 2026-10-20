@@ -38,12 +38,13 @@ export class EnrollmentService {
       throw new CourseCompletedException(courseId)
     }
 
-    const existingEnrollment =
-      await this.enrollmentRepository.findByStudentAndCourse(
-        studentId,
-        courseId
-      )
-    if (existingEnrollment) {
+    // Un refus de paiement laisse une inscription « failed » : elle ne doit pas empêcher
+    // une nouvelle tentative. Seules les inscriptions « pending » ou « completed » comptent.
+    const studentEnrollments = await this.enrollmentRepository.findByStudent(studentId)
+    const alreadyEnrolled = studentEnrollments.some(
+      (e) => e.courseId === courseId && e.status !== 'failed'
+    )
+    if (alreadyEnrolled) {
       throw new EnrollmentAlreadyExistsException(studentId, courseId)
     }
 

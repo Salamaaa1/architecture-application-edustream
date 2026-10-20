@@ -1,0 +1,14 @@
+[
+  {
+    "key": "lib/services/validators.ts|RegexLiteral|/^[\\d\\s.-]+$/ => /^[\\d\\s.-]*$/|if (!/^[\\d\\s.-]+$/.test(cardNumber)) return false#0",
+    "reason": "La longueur (13 à 19 chiffres) est vérifiée juste après : une chaîne vide ou faite uniquement de séparateurs contient 0 chiffre et est refusée de toute façon."
+  },
+  {
+    "key": "lib/services/validators.ts|ConditionalBoundary|> => >=|if (digit > 9) digit -= 9#0",
+    "reason": "Un chiffre doublé est toujours pair : il ne peut jamais valoir exactement 9, donc « > 9 » et « >= 9 » donnent le même résultat."
+  },
+  {
+    "key": "lib/services/course.service.ts|IfCondition|!course => false|if (!course) throw new CourseNotFoundException(courseId)#1",
+    "reason": "Garde redondante : si le cours n'existe pas, courseRepository.update lève exactement la même CourseNotFoundException."
+  }
+]

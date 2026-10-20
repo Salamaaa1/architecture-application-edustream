@@ -4,9 +4,10 @@ import { Canvas, useFrame } from '@react-three/fiber'
 import { Float, OrbitControls, Sparkles, Text } from '@react-three/drei'
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { ArrowRight, BookOpen, CheckCircle2, Clock3, Layers3, Menu, PlayCircle, Search, ShieldCheck, Sparkles as SparklesIcon, Users, X, Lock, Mail, User, AlertCircle, LogOut } from 'lucide-react'
+import { ArrowRight, BookOpen, CheckCircle2, Clock3, Layers3, Menu, PlayCircle, Search, ShieldCheck, Sparkles as SparklesIcon, Users, X, Lock, Mail, User, AlertCircle, LogOut, LayoutDashboard } from 'lucide-react'
 import type { Mesh } from 'three'
 import { Button, buttonVariants } from '@/components/ui/button'
+import { getStoredUser, getStoredEnrolledCourseIds, saveStoredUser, syncUserEnrollments, StoredUser } from '@/lib/enrollment-client'
 
 const courses = [
   { id: 'react', title: 'React avancé & architecture', category: 'Développement', level: 'Intermédiaire', price: 1490, seats: 8, duration: '12 h', accent: 'violet', description: 'Construisez des interfaces robustes avec des patterns modernes et testables.' },
@@ -51,16 +52,30 @@ export default function Page() {
   const [query, setQuery] = useState('')
   const [authModalOpen, setAuthModalOpen] = useState(false)
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login')
-  const [currentUser, setCurrentUser] = useState<{ email: string; firstName: string; lastName: string } | null>(null)
+  const [currentUser, setCurrentUser] = useState<StoredUser | null>(null)
+  const [enrolledCourseIds, setEnrolledCourseIds] = useState<string[]>([])
   const [authForm, setAuthForm] = useState({ email: '', password: '', firstName: '', lastName: '' })
   const [authError, setAuthError] = useState('')
   const [authLoading, setAuthLoading] = useState(false)
 
-  useEffect(() => {
-    const saved = localStorage.getItem('edustream_user')
-    if (saved) {
-      try { setCurrentUser(JSON.parse(saved)) } catch {}
+  const refreshUserData = async () => {
+    const user = getStoredUser()
+    setCurrentUser(user)
+    const storedIds = getStoredEnrolledCourseIds()
+    setEnrolledCourseIds(storedIds)
+
+    if (user?.email) {
+      const synced = await syncUserEnrollments(user.email)
+      setEnrolledCourseIds(synced)
     }
+  }
+
+  useEffect(() => {
+    refreshUserData()
+
+    const handleAuthChange = () => refreshUserData()
+    window.addEventListener('edustream_auth_change', handleAuthChange)
+    return () => window.removeEventListener('edustream_auth_change', handleAuthChange)
   }, [])
 
   const handleAuthSubmit = async (e: React.FormEvent) => {
@@ -78,9 +93,16 @@ export default function Page() {
         const data = await res.json()
         if (!res.ok) throw new Error(data.error || 'Connexion échouée')
 
-        const userObj = { email: data.email, firstName: data.firstName || 'Étudiant', lastName: data.lastName || '' }
-        setCurrentUser(userObj)
-        localStorage.setItem('edustream_user', JSON.stringify(userObj))
+        const saved = saveStoredUser({
+          id: data.id,
+          email: data.email,
+          firstName: data.firstName || 'Étudiant',
+          lastName: data.lastName || '',
+          role: data.role || 'USER',
+          enrolledCourses: data.enrolledCourses || [],
+        })
+        setCurrentUser(saved)
+        setEnrolledCourseIds(saved.enrolledCourses)
         setAuthModalOpen(false)
       } else {
         const res = await fetch('/api/students', {
@@ -96,9 +118,16 @@ export default function Page() {
         const data = await res.json()
         if (!res.ok) throw new Error(data.error || "Création de compte échouée")
 
-        const userObj = { email: data.email, firstName: data.firstName, lastName: data.lastName }
-        setCurrentUser(userObj)
-        localStorage.setItem('edustream_user', JSON.stringify(userObj))
+        const saved = saveStoredUser({
+          id: data.id,
+          email: data.email,
+          firstName: data.firstName,
+          lastName: data.lastName,
+          role: data.role || 'USER',
+          enrolledCourses: [],
+        })
+        setCurrentUser(saved)
+        setEnrolledCourseIds([])
         setAuthModalOpen(false)
       }
     } catch (err) {
@@ -109,8 +138,11 @@ export default function Page() {
   }
 
   const handleLogout = () => {
-    setCurrentUser(null)
     localStorage.removeItem('edustream_user')
+    localStorage.removeItem('edustream_enrolled_courses')
+    setCurrentUser(null)
+    setEnrolledCourseIds([])
+    window.dispatchEvent(new Event('edustream_auth_change'))
   }
 
   const filtered = courses.filter((course) => `${course.title} ${course.category}`.toLowerCase().includes(query.toLowerCase()))
@@ -123,20 +155,29 @@ export default function Page() {
           <a href="#catalogue" onClick={() => setMobileOpen(false)}>Catalogue</a>
           <a href="#methode" onClick={() => setMobileOpen(false)}>Notre méthode</a>
           <a href="#aide" onClick={() => setMobileOpen(false)}>Besoin d'aide ?</a>
+          {currentUser && (
+            <Link href="/dashboard" onClick={() => setMobileOpen(false)} className="text-purple-300 font-semibold hover:text-purple-200 flex items-center gap-1">
+              <BookOpen className="w-4 h-4 inline" /> Mes cours
+            </Link>
+          )}
           <Link href="/admin" onClick={() => setMobileOpen(false)} className="text-purple-400 font-semibold hover:text-purple-300 flex items-center gap-1">
             <ShieldCheck className="w-4 h-4 inline" /> Admin
           </Link>
         </nav>
         <div className="header-actions">
           {currentUser ? (
-            <div className="flex items-center gap-3">
-              <span className="text-sm font-semibold text-purple-300">Bonjour, {currentUser.firstName}</span>
+            <div className="flex items-center gap-2">
+              <Link href="/dashboard">
+                <Button variant="outline" size="sm" className="border-purple-500/40 text-purple-300 hover:bg-purple-950/40">
+                  <LayoutDashboard className="w-3.5 h-3.5 mr-1" /> Tableau de bord
+                </Button>
+              </Link>
               <Button variant="ghost" onClick={handleLogout} className="text-slate-400 hover:text-white" size="sm">
-                <LogOut className="w-4 h-4 mr-1" /> Déconnexion
+                <LogOut className="w-4 h-4" />
               </Button>
             </div>
           ) : (
-            <Button variant="ghost" className="login-btn" onClick={() => { setAuthMode('login'); setAuthModalOpen(true) }}>
+            <Button variant="ghost" className="login-btn" onClick={() => { setAuthMode('login'); setAuthError(''); setAuthModalOpen(true) }}>
               Se connecter
             </Button>
           )}
@@ -187,9 +228,22 @@ export default function Page() {
                 <h3>{course.title}</h3>
                 <p>{course.description}</p>
                 <div className="course-footer">
-                  <strong>{course.price} DH</strong>
-                  <span className="seat-count"><Users /> {course.seats} places</span>
-                  <Link className={buttonVariants({ size: 'sm' })} href={`/courses/${course.id}`}>Voir le cours <ArrowRight data-icon="inline-end" /></Link>
+                  {enrolledCourseIds.includes(course.id) ? (
+                    <>
+                      <span className="px-2.5 py-1 bg-green-500/10 border border-green-500/30 text-green-400 text-xs rounded-full font-semibold flex items-center gap-1">
+                        <CheckCircle2 className="w-3.5 h-3.5" /> Acquis
+                      </span>
+                      <Link className={buttonVariants({ size: 'sm', className: 'bg-purple-600 hover:bg-purple-700 text-white font-semibold' })} href={`/courses/${course.id}`}>
+                        Accéder au cours <ArrowRight data-icon="inline-end" />
+                      </Link>
+                    </>
+                  ) : (
+                    <>
+                      <strong>{course.price} DH</strong>
+                      <span className="seat-count"><Users /> {course.seats} places</span>
+                      <Link className={buttonVariants({ size: 'sm' })} href={`/courses/${course.id}`}>Voir le cours <ArrowRight data-icon="inline-end" /></Link>
+                    </>
+                  )}
                 </div>
               </div>
             </article>

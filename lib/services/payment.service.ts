@@ -1,9 +1,6 @@
 import { v4 as uuid } from 'uuid'
 import { CardData, Payment } from '@/lib/types'
-import {
-  PaymentRefusedException,
-  InsufficientFundsException,
-} from '@/lib/exceptions'
+import { PaymentRefusedException } from '@/lib/exceptions'
 import { CardValidator } from './validators'
 import { PaymentRepository } from '@/lib/repositories/interface'
 
@@ -12,29 +9,11 @@ export interface PaymentGateway {
 }
 
 export class MockPaymentGateway implements PaymentGateway {
-  private minBalance = 100
-  private rejectionRate = 0.1
-
-  async processPayment(amount: number, cardData: CardData): Promise<string> {
-    const cardNumber = cardData.cardNumber.replace(/\D/g, '')
-    const lastDigits = parseInt(cardNumber.slice(-4), 10)
-
+  async processPayment(_amount: number, cardData: CardData): Promise<string> {
+    // Projet de test : toute carte qui passe la validation (Luhn, expiration, CVV,
+    // titulaire) est acceptée. Aucun refus aléatoire, aucune carte « bloquée »,
+    // aucun solde simulé.
     CardValidator.validateCardData(cardData)
-
-    const simulatedBalance = (lastDigits * 1000) % 50000
-
-    if (simulatedBalance < amount) {
-      throw new InsufficientFundsException()
-    }
-
-    const random = Math.random()
-    if (random < this.rejectionRate) {
-      throw new PaymentRefusedException('Transaction refusée par la banque')
-    }
-
-    if (cardData.cardNumber.includes('4111111111111111')) {
-      throw new PaymentRefusedException('Carte bloquée')
-    }
 
     return `TXN-${uuid().substring(0, 8)}`
   }

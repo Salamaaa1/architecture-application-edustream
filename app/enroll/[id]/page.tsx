@@ -1,10 +1,11 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useParams } from 'next/navigation'
-import { ArrowLeft, AlertCircle, CheckCircle2, Loader2 } from 'lucide-react'
+import { ArrowLeft, AlertCircle, CheckCircle2, Loader2, PlayCircle, LayoutDashboard } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import Link from 'next/link'
+import { getStoredUser, isEnrolledInCourse, addEnrolledCourse, syncUserEnrollments } from '@/lib/enrollment-client'
 
 const courseData: Record<string, any> = {
   react: { title: 'React avancé & architecture', price: 1490, id: 'react' },
@@ -33,6 +34,33 @@ export default function EnrollPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [step, setStep] = useState<'form' | 'confirm'>('form')
+  const [alreadyEnrolled, setAlreadyEnrolled] = useState(false)
+
+  useEffect(() => {
+    const user = getStoredUser()
+    if (user) {
+      setFormData((prev) => ({
+        ...prev,
+        firstName: user.firstName || prev.firstName,
+        lastName: user.lastName || prev.lastName,
+        email: user.email || prev.email,
+      }))
+
+      if (course?.id) {
+        if (isEnrolledInCourse(course.id)) {
+          setAlreadyEnrolled(true)
+        } else if (user.email) {
+          syncUserEnrollments(user.email).then((list) => {
+            if (list.includes(course.id)) {
+              setAlreadyEnrolled(true)
+            }
+          })
+        }
+      }
+    } else if (course?.id && isEnrolledInCourse(course.id)) {
+      setAlreadyEnrolled(true)
+    }
+  }, [course?.id])
 
   if (!course) {
     return (
@@ -49,7 +77,7 @@ export default function EnrollPage() {
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value, type, checked } = e.target
-    setFormData(prev => ({
+    setFormData((prev) => ({
       ...prev,
       [name]: type === 'checkbox' ? checked : value,
     }))
@@ -91,8 +119,22 @@ export default function EnrollPage() {
         }),
       })
 
-      if (!response.ok) throw new Error('Inscription échouée')
-      
+      const data = await response.json()
+
+      if (!response.ok) {
+        if (data.alreadyEnrolled || (data.error && data.error.toLowerCase().includes('déjà inscrit'))) {
+          addEnrolledCourse(course.id, {
+            email: formData.email,
+            firstName: formData.firstName,
+            lastName: formData.lastName,
+          })
+          setAlreadyEnrolled(true)
+          setLoading(false)
+          return
+        }
+        throw new Error(data.error || 'Inscription échouée')
+      }
+
       // Redirect to payment
       window.location.href = `/payment/${course.id}?email=${encodeURIComponent(formData.email)}&firstName=${encodeURIComponent(formData.firstName)}&lastName=${encodeURIComponent(formData.lastName)}`
     } catch (err) {
@@ -104,9 +146,12 @@ export default function EnrollPage() {
   return (
     <main className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-950">
       <header className="border-b border-slate-700/50">
-        <div className="max-w-4xl mx-auto px-4 py-4">
+        <div className="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between">
           <Link href={`/courses/${course.id}`}>
             <Button variant="ghost"><ArrowLeft className="mr-2" /> Retour au cours</Button>
+          </Link>
+          <Link href="/dashboard" className="text-sm font-medium text-purple-400 hover:text-purple-300">
+            Mon tableau de bord
           </Link>
         </div>
       </header>
@@ -119,140 +164,170 @@ export default function EnrollPage() {
               <p className="text-slate-400">{course.title}</p>
             </div>
 
-            {/* Steps Indicator */}
-            <div className="flex gap-4 mb-12">
-              <div className={`flex-1 h-1 rounded-full transition ${step === 'form' ? 'bg-purple-500' : 'bg-slate-700'}`} />
-              <div className={`flex-1 h-1 rounded-full transition ${step === 'confirm' ? 'bg-purple-500' : 'bg-slate-700'}`} />
-            </div>
-
-            {step === 'form' ? (
-              <form onSubmit={handleSubmit} className="space-y-6 bg-slate-800/50 p-8 rounded-xl border border-slate-700/50">
-                <div className="grid md:grid-cols-2 gap-6">
-                  <div>
-                    <label className="block text-sm font-medium text-slate-300 mb-2">Prénom</label>
-                    <input
-                      type="text"
-                      name="firstName"
-                      value={formData.firstName}
-                      onChange={handleChange}
-                      className="w-full px-4 py-2 bg-slate-900/50 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-purple-500"
-                      placeholder="Jean"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-300 mb-2">Nom</label>
-                    <input
-                      type="text"
-                      name="lastName"
-                      value={formData.lastName}
-                      onChange={handleChange}
-                      className="w-full px-4 py-2 bg-slate-900/50 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-purple-500"
-                      placeholder="Dupont"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-2">Email</label>
-                  <input
-                    type="email"
-                    name="email"
-                    value={formData.email}
-                    onChange={handleChange}
-                    className="w-full px-4 py-2 bg-slate-900/50 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-purple-500"
-                    placeholder="jean@example.com"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-2">Téléphone</label>
-                  <input
-                    type="tel"
-                    name="phone"
-                    value={formData.phone}
-                    onChange={handleChange}
-                    className="w-full px-4 py-2 bg-slate-900/50 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-purple-500"
-                    placeholder="+212 6 XX XX XX XX"
-                  />
-                </div>
-
-                <label className="flex items-start gap-3 p-4 bg-slate-900/50 rounded-lg cursor-pointer">
-                  <input
-                    type="checkbox"
-                    name="agreeTerms"
-                    checked={formData.agreeTerms}
-                    onChange={handleChange}
-                    className="mt-1 w-5 h-5 accent-purple-500"
-                  />
-                  <span className="text-sm text-slate-300">
-                    J'accepte les conditions d'utilisation et la politique de confidentialité
-                  </span>
-                </label>
-
-                {error && (
-                  <div className="p-4 bg-red-500/10 border border-red-500/50 rounded-lg flex gap-3">
-                    <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
-                    <p className="text-red-300">{error}</p>
-                  </div>
-                )}
-
-                <Button type="submit" className="w-full bg-purple-600 hover:bg-purple-700 text-white py-3 text-lg">
-                  Continuer
-                </Button>
-              </form>
-            ) : (
-              <div className="space-y-6">
-                <div className="bg-slate-800/50 p-8 rounded-xl border border-slate-700/50">
-                  <h2 className="text-xl font-bold text-white mb-6">Confirmer vos informations</h2>
-
-                  <div className="space-y-4 mb-8">
-                    <div className="flex justify-between items-center p-3 bg-slate-900/50 rounded-lg">
-                      <span className="text-slate-400">Nom complet</span>
-                      <span className="text-white font-semibold">{formData.firstName} {formData.lastName}</span>
-                    </div>
-                    <div className="flex justify-between items-center p-3 bg-slate-900/50 rounded-lg">
-                      <span className="text-slate-400">Email</span>
-                      <span className="text-white font-semibold">{formData.email}</span>
-                    </div>
-                    <div className="flex justify-between items-center p-3 bg-slate-900/50 rounded-lg">
-                      <span className="text-slate-400">Cours</span>
-                      <span className="text-white font-semibold">{course.title}</span>
-                    </div>
-                  </div>
-
-                  {error && (
-                    <div className="p-4 bg-red-500/10 border border-red-500/50 rounded-lg flex gap-3 mb-6">
-                      <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
-                      <p className="text-red-300">{error}</p>
-                    </div>
-                  )}
-
-                  <div className="flex gap-4">
-                    <Button
-                      variant="outline"
-                      onClick={() => setStep('form')}
-                      className="flex-1"
-                      disabled={loading}
-                    >
-                      Retour
+            {alreadyEnrolled ? (
+              <div className="bg-purple-950/40 border border-purple-500/40 rounded-2xl p-8 text-center space-y-4 shadow-xl">
+                <CheckCircle2 className="w-16 h-16 text-purple-400 mx-auto" />
+                <h2 className="text-2xl font-bold text-white">Vous êtes déjà inscrit à ce cours !</h2>
+                <p className="text-slate-300 text-sm max-w-md mx-auto">
+                  Votre accès à la formation <strong className="text-purple-300">{course.title}</strong> est déjà actif et débloqué. Vous n'avez pas besoin de vous réinscrire.
+                </p>
+                <div className="flex flex-col sm:flex-row gap-3 justify-center pt-4">
+                  <Link href={`/courses/${course.id}`}>
+                    <Button className="bg-purple-600 hover:bg-purple-700 text-white font-semibold">
+                      <PlayCircle className="w-4 h-4 mr-2" />
+                      Accéder au cours maintenant
                     </Button>
-                    <Button
-                      onClick={handleConfirm}
-                      className="flex-1 bg-purple-600 hover:bg-purple-700 text-white"
-                      disabled={loading}
-                    >
-                      {loading ? (
-                        <>
-                          <Loader2 className="mr-2 w-4 h-4 animate-spin" />
-                          Traitement...
-                        </>
-                      ) : (
-                        'Procéder au paiement'
-                      )}
+                  </Link>
+                  <Link href="/dashboard">
+                    <Button variant="outline" className="border-slate-700 text-slate-200">
+                      <LayoutDashboard className="w-4 h-4 mr-2" />
+                      Mon tableau de bord
                     </Button>
-                  </div>
+                  </Link>
                 </div>
               </div>
+            ) : (
+              <>
+                {/* Steps Indicator */}
+                <div className="flex gap-4 mb-12">
+                  <div className={`flex-1 h-1 rounded-full transition ${step === 'form' ? 'bg-purple-500' : 'bg-slate-700'}`} />
+                  <div className={`flex-1 h-1 rounded-full transition ${step === 'confirm' ? 'bg-purple-500' : 'bg-slate-700'}`} />
+                </div>
+
+                {step === 'form' ? (
+                  <form onSubmit={handleSubmit} className="space-y-6 bg-slate-800/50 p-8 rounded-xl border border-slate-700/50">
+                    <div className="grid md:grid-cols-2 gap-6">
+                      <div>
+                        <label className="block text-sm font-medium text-slate-300 mb-2">Prénom</label>
+                        <input
+                          type="text"
+                          name="firstName"
+                          value={formData.firstName}
+                          onChange={handleChange}
+                          className="w-full px-4 py-2 bg-slate-900/50 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-purple-500"
+                          placeholder="Jean"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-slate-300 mb-2">Nom</label>
+                        <input
+                          type="text"
+                          name="lastName"
+                          value={formData.lastName}
+                          onChange={handleChange}
+                          className="w-full px-4 py-2 bg-slate-900/50 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-purple-500"
+                          placeholder="Dupont"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-slate-300 mb-2">Email</label>
+                      <input
+                        type="email"
+                        name="email"
+                        value={formData.email}
+                        onChange={handleChange}
+                        className="w-full px-4 py-2 bg-slate-900/50 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-purple-500"
+                        placeholder="jean@example.com"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-slate-300 mb-2">Téléphone</label>
+                      <input
+                        type="tel"
+                        name="phone"
+                        value={formData.phone}
+                        onChange={handleChange}
+                        className="w-full px-4 py-2 bg-slate-900/50 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-purple-500"
+                        placeholder="+212 6 XX XX XX XX"
+                      />
+                    </div>
+
+                    <label className="flex items-start gap-3 p-4 bg-slate-900/50 rounded-lg cursor-pointer">
+                      <input
+                        type="checkbox"
+                        name="agreeTerms"
+                        checked={formData.agreeTerms}
+                        onChange={handleChange}
+                        className="mt-1 w-5 h-5 accent-purple-500"
+                      />
+                      <span className="text-sm text-slate-300">
+                        J'accepte les conditions d'utilisation et la politique de confidentialité
+                      </span>
+                    </label>
+
+                    {error && (
+                      <div className="p-4 bg-red-500/10 border border-red-500/50 rounded-lg flex gap-3">
+                        <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
+                        <p className="text-red-300">{error}</p>
+                      </div>
+                    )}
+
+                    <Button type="submit" className="w-full bg-purple-600 hover:bg-purple-700 text-white py-3 text-lg">
+                      Continuer vers la confirmation
+                    </Button>
+                  </form>
+                ) : (
+                  <div className="space-y-6">
+                    <div className="bg-slate-800/50 p-8 rounded-xl border border-slate-700/50">
+                      <h2 className="text-xl font-bold text-white mb-6">Confirmer vos informations</h2>
+
+                      <div className="space-y-4 mb-8">
+                        <div className="flex justify-between items-center p-3 bg-slate-900/50 rounded-lg">
+                          <span className="text-slate-400">Nom complet</span>
+                          <span className="text-white font-semibold">{formData.firstName} {formData.lastName}</span>
+                        </div>
+                        <div className="flex justify-between items-center p-3 bg-slate-900/50 rounded-lg">
+                          <span className="text-slate-400">Email</span>
+                          <span className="text-white font-semibold">{formData.email}</span>
+                        </div>
+                        <div className="flex justify-between items-center p-3 bg-slate-900/50 rounded-lg">
+                          <span className="text-slate-400">Téléphone</span>
+                          <span className="text-white font-semibold">{formData.phone}</span>
+                        </div>
+                        <div className="flex justify-between items-center p-3 bg-slate-900/50 rounded-lg">
+                          <span className="text-slate-400">Cours</span>
+                          <span className="text-white font-semibold">{course.title}</span>
+                        </div>
+                      </div>
+
+                      {error && (
+                        <div className="p-4 bg-red-500/10 border border-red-500/50 rounded-lg flex gap-3 mb-6">
+                          <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
+                          <p className="text-red-300">{error}</p>
+                        </div>
+                      )}
+
+                      <div className="flex gap-4">
+                        <Button
+                          variant="outline"
+                          onClick={() => setStep('form')}
+                          className="flex-1"
+                          disabled={loading}
+                        >
+                          Retour
+                        </Button>
+                        <Button
+                          onClick={handleConfirm}
+                          className="flex-1 bg-purple-600 hover:bg-purple-700 text-white"
+                          disabled={loading}
+                        >
+                          {loading ? (
+                            <>
+                              <Loader2 className="mr-2 w-4 h-4 animate-spin" />
+                              Validation...
+                            </>
+                          ) : (
+                            'Procéder au paiement'
+                          )}
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </>
             )}
           </div>
 

@@ -30,3 +30,7 @@ Thumbs.db
 .gemini/
 scratch/
 *.log
+# Mutation testing outputs
+.stryker-tmp/
+reports/
+*.mutation.bak

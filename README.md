@@ -98,10 +98,19 @@ mvn test
 ```
 *Rapport JaCoCo généré dans `backend/target/site/jacoco/index.html`.*
 
-### Script de Vérification Automatisé E2E (10 Tests)
+### Tests E2E Navigateur avec Selenium WebDriver (100% Validé) 🧪
+Une suite complète de tests de bout en bout en navigateur réel (Chrome & Edge) :
 ```powershell
-powershell -ExecutionPolicy Bypass -File "scripts/verify-all-features.ps1"
+# En mode arrière-plan (Headless)
+python scripts/run-selenium-tests.py
+
+# En mode visible (avec fenêtre de navigateur)
+python scripts/run-selenium-tests.py --headed
+
+# Sur Microsoft Edge
+python scripts/run-selenium-tests.py --browser edge
 ```
+*Consultez le guide complet dans [`SELENIUM.md`](SELENIUM.md).*
 
 ---
 
