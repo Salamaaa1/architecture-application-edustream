@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8080'
+import { getBackendUrl } from '@/lib/backend'
 
 export async function PUT(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const BACKEND_URL = await getBackendUrl()
   try {
     const { id } = await params
     const body = await req.json()

@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server'
 
-const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8080'
+import { getBackendUrl } from '@/lib/backend'
 
 export async function GET() {
+  const BACKEND_URL = await getBackendUrl()
   try {
     const springRes = await fetch(`${BACKEND_URL}/api/admin/enrollments`)
     const data = await springRes.json()

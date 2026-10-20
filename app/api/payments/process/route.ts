@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServiceContainer } from '@/lib/services/container'
 
-const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8080'
+import { getBackendUrl } from '@/lib/backend'
 
 export async function POST(request: NextRequest) {
+  const BACKEND_URL = await getBackendUrl()
   try {
     const body = await request.json()
     const { enrollmentId, studentId, studentEmail, courseId, amount, cardData } = body

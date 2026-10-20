@@ -2,9 +2,10 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServiceContainer } from '@/lib/services/container'
 import { BusinessException } from '@/lib/exceptions'
 
-const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8080'
+import { getBackendUrl } from '@/lib/backend'
 
 export async function GET() {
+  const BACKEND_URL = await getBackendUrl()
   try {
     const springRes = await fetch(`${BACKEND_URL}/api/students`)
     if (springRes.ok) {
@@ -18,6 +19,7 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
+  const BACKEND_URL = await getBackendUrl()
   try {
     const body = await req.json()
     const { email, firstName, lastName, password } = body

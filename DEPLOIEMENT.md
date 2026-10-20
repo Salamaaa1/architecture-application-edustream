@@ -46,3 +46,63 @@ Copier `.env.example` en `.env.local`, puis :
 
     cd backend && mvn -DskipTests package && java -jar target/edustream-backend-1.0.0.jar
     pnpm install && pnpm build && pnpm start
+
+## Canary deployment avec Unleash
+
+Le frontend envoie chaque visiteur vers l'un de deux backends :
+- **stable** (`BACKEND_URL`), version actuelle ;
+- **canary** (`BACKEND_CANARY_URL`), nouvelle version.
+
+Le choix est fait par le flag Unleash `backend-canary` (fichier `lib/backend.ts`).
+`proxy.ts` donne a chaque visiteur un cookie `edustream_sid`. Grace a ce cookie, un meme visiteur reste toujours sur la meme version.
+Si Unleash ne repond pas, ou si le flag est desactive, tout le trafic va au backend stable.
+
+### 1. Serveur Unleash
+
+Deux possibilites :
+- Unleash Cloud (getunleash.io), en periode d'essai ;
+- auto-heberge : service Docker avec l'image `unleashorg/unleash-server`, une base PostgreSQL et la variable `DATABASE_URL`.
+
+Se connecter (compte par defaut `admin` / `unleash4all`, a changer tout de suite), puis :
+1. **Admin > API access** : creer un jeton de type **Backend** pour l'environnement `production`.
+2. Creer le flag `backend-canary`, puis dans l'environnement `production` :
+   - ajouter la strategie **Gradual rollout**, a 10 %, stickiness `sessionId` ;
+   - activer le flag.
+
+### 2. Deux backends
+
+Sur Railway, creer deux services a partir du meme depot (dossier `backend`, memes commandes qu'a l'etape 1) :
+- `edustream-stable` : branche `master`, variable `APP_VERSION` = `v1` ;
+- `edustream-canary` : branche `canary`, qui contient la nouvelle version du code, variable `APP_VERSION` = `v2`.
+
+Verifier : `https://<backend>/api/version` renvoie `{"version":"v1"}` ou `{"version":"v2"}`.
+
+### 3. Variables Vercel
+
+| Variable | Valeur |
+|---|---|
+| `BACKEND_URL` | URL du backend stable |
+| `BACKEND_CANARY_URL` | URL du backend canary |
+| `UNLEASH_URL` | URL du serveur Unleash suivie de `/api` |
+| `UNLEASH_API_TOKEN` | jeton Backend cree a l'etape 1 |
+| `ADMIN_PASSWORD` | mot de passe admin |
+
+Redeployer le frontend apres avoir ajoute ces variables.
+
+### 4. Test
+
+`https://<site-vercel>/api/version` renvoie `{"target":"stable"|"canary","backendVersion":"v1"|"v2"}`.
+Il renvoie aussi l'en-tete `X-Backend`.
+
+Mesurer la repartition avec 100 visiteurs differents (chaque appel sans cookie est un nouveau visiteur) :
+
+    for i in $(seq 100); do curl -s https://<site-vercel>/api/version; echo; done | grep -o '"target":"[a-z]*"' | sort | uniq -c
+
+Deroulement du test :
+1. Flag a 10 % : environ 10 reponses `canary` sur 100.
+2. Passer a 50 %, puis a 100 %, dans Unleash. Le changement est pris en compte en environ 5 secondes, sans redeploiement.
+3. **Rollback** : desactiver le flag (ou le mettre a 0 %). Tout le trafic revient sur `stable`.
+4. Dans un navigateur, recharger plusieurs fois `/api/version` : la reponse reste la meme, car le cookie garde le visiteur sur sa version.
+
+Limite : chaque backend a sa propre base H2 en memoire. Un compte cree sur le stable n'existe pas sur le canary.
+Pour une demonstration complete, brancher les deux backends sur une meme base PostgreSQL.

@@ -2,9 +2,10 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServiceContainer } from '@/lib/services/container'
 import { BusinessException } from '@/lib/exceptions'
 
-const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8080'
+import { getBackendUrl } from '@/lib/backend'
 
 export async function GET(req: NextRequest) {
+  const BACKEND_URL = await getBackendUrl()
   try {
     try {
       const springRes = await fetch(`${BACKEND_URL}/api/courses`)
@@ -27,6 +28,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const BACKEND_URL = await getBackendUrl()
   try {
     const body = await req.json()
     try {
