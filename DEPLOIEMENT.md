@@ -5,7 +5,7 @@ L'application a deux parties :
 - le frontend Next.js, a heberger sur Vercel.
 
 Le frontend appelle le backend depuis le serveur, donc aucun reglage CORS n'est necessaire.
-Le backend lit le port dans la variable `PORT` (8080 par defaut) et un fichier `Procfile` indique la commande de demarrage.
+Le backend (dossier `backend`, non modifie) ecoute sur le port 8080, ou sur la valeur de la variable `SERVER_PORT`.
 
 ## 1. Backend (service qui compile Maven, par exemple Railway)
 
@@ -14,7 +14,7 @@ Le backend lit le port dans la variable `PORT` (8080 par defaut) et un fichier `
    - **Root Directory** : `backend`
    - **Build Command** : `mvn -DskipTests package`
    - **Start Command** : `java -Xmx350m -XX:+UseSerialGC -jar target/edustream-backend-1.0.0.jar`
-3. Dans **Variables**, ajouter `ADMIN_PASSWORD` (mot de passe de l'espace admin).
+3. Dans **Variables**, ajouter `ADMIN_PASSWORD` (mot de passe de l'espace admin), `SERVER_PORT` = `8080` et `PORT` = `8080` (pour que le service sache quel port exposer).
 4. Dans **Networking**, generer un domaine public. Noter l'URL.
 5. Verifier : `https://<url-backend>/api/courses` renvoie la liste des cours.
 
