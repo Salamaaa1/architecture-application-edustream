@@ -6,8 +6,11 @@ services:
     dockerfilePath: ./backend/Dockerfile
     dockerContext: ./backend
     healthCheckPath: /api/courses
+    autoDeploy: true
     envVars:
       - key: PORT
         value: "8080"
+      - key: JAVA_TOOL_OPTIONS
+        value: "-Xmx350m -XX:+UseSerialGC"
       - key: ADMIN_PASSWORD
         sync: false
