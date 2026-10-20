@@ -16,9 +16,15 @@ export async function POST(req: NextRequest) {
       })
       const data = await springRes.json()
       if (!springRes.ok) {
-        return NextResponse.json({ error: data.error || 'Erreur inscription' }, { status: springRes.status })
+        const isAlreadyEnrolled = data.alreadyEnrolled || data.code === 'ENROLLMENT_EXISTS' || (data.error && data.error.toLowerCase().includes('déjà inscrit'))
+        return NextResponse.json({
+          error: data.error || 'Erreur inscription',
+          code: data.code,
+          alreadyEnrolled: isAlreadyEnrolled,
+          courseId: body.courseId,
+        }, { status: springRes.status })
       }
-      return NextResponse.json(data, { status: 201 })
+      return NextResponse.json(data, { status: springRes.status })
     } catch {
       // If student is registering prior to payment step
       const { studentId, courseId, cardData, studentEmail, firstName, lastName } = body

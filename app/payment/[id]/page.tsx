@@ -1,10 +1,11 @@
 'use client'
 
 import { useSearchParams, useRouter, useParams } from 'next/navigation'
-import { useState } from 'react'
-import { AlertCircle, CheckCircle2, Loader2, Lock, CreditCard, Calendar, User } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { AlertCircle, CheckCircle2, Loader2, Lock, CreditCard, Calendar, User, PlayCircle, LayoutDashboard } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import Link from 'next/link'
+import { addEnrolledCourse, isEnrolledInCourse, syncUserEnrollments } from '@/lib/enrollment-client'
 
 const courseData: Record<string, any> = {
   react: { title: 'React avancé & architecture', price: 1490, id: 'react' },
@@ -32,7 +33,7 @@ export default function PaymentPage() {
   const lastName = searchParams?.get('lastName') || ''
 
   const [formData, setFormData] = useState<PaymentForm>({
-    cardName: '',
+    cardName: firstName && lastName ? `${firstName} ${lastName}` : '',
     cardNumber: '',
     expiryDate: '',
     cvv: '',
@@ -44,6 +45,21 @@ export default function PaymentPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState(false)
+  const [alreadyEnrolled, setAlreadyEnrolled] = useState(false)
+
+  useEffect(() => {
+    if (course?.id) {
+      if (isEnrolledInCourse(course.id)) {
+        setAlreadyEnrolled(true)
+      } else if (email) {
+        syncUserEnrollments(email).then((list) => {
+          if (list.includes(course.id)) {
+            setAlreadyEnrolled(true)
+          }
+        })
+      }
+    }
+  }, [course?.id, email])
 
   if (!course) {
     return (
@@ -61,13 +77,11 @@ export default function PaymentPage() {
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     let { name, value } = e.target
 
-    // Format card number
     if (name === 'cardNumber') {
       value = value.replace(/\s/g, '').slice(0, 16)
       value = value.replace(/(\d{4})(?=\d)/g, '$1 ')
     }
 
-    // Format expiry date
     if (name === 'expiryDate') {
       value = value.replace(/\D/g, '').slice(0, 4)
       if (value.length >= 2) {
@@ -75,21 +89,20 @@ export default function PaymentPage() {
       }
     }
 
-    // Format CVV
     if (name === 'cvv') {
       value = value.replace(/\D/g, '').slice(0, 3)
     }
 
-    setFormData(prev => ({ ...prev, [name]: value }))
+    setFormData((prev) => ({ ...prev, [name]: value }))
     setError('')
   }
 
   const validatePayment = () => {
     if (!formData.cardName.trim()) return 'Le nom sur la carte est requis'
     if (formData.cardNumber.replace(/\s/g, '').length !== 16) return 'Numéro de carte invalide (16 chiffres)'
-    if (!formData.expiryDate.match(/^\d{2}\/\d{2}$/)) return 'Date d\'expiration invalide (MM/YY)'
+    if (!formData.expiryDate.match(/^\d{2}\/\d{2}$/)) return "Date d'expiration invalide (MM/YY)"
     if (formData.cvv.length !== 3) return 'CVV invalide (3 chiffres)'
-    if (!formData.billingAddress.trim()) return 'L\'adresse est requise'
+    if (!formData.billingAddress.trim()) return "L'adresse est requise"
     if (!formData.billingCity.trim()) return 'La ville est requise'
     if (!formData.billingZip.match(/^\d{5}$/)) return 'Code postal invalide (5 chiffres)'
     return ''
@@ -97,7 +110,7 @@ export default function PaymentPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    
+
     const validationError = validatePayment()
     if (validationError) {
       setError(validationError)
@@ -132,13 +145,20 @@ export default function PaymentPage() {
       const data = await response.json()
 
       if (!response.ok) {
-        throw new Error(data.error || 'Erreur lors du paiement')
+        if (data.alreadyEnrolled || (data.error && data.error.toLowerCase().includes('déjà inscrit'))) {
+          addEnrolledCourse(course.id, { email, firstName, lastName })
+          setAlreadyEnrolled(true)
+          setLoading(false)
+          return
+        }
+        throw new Error(data.error || 'Erreur lors du traitement du paiement')
       }
 
+      addEnrolledCourse(course.id, { email, firstName, lastName })
       setSuccess(true)
       setTimeout(() => {
-        router.push(`/success?enrollmentId=${data.enrollmentId}`)
-      }, 2000)
+        router.push(`/success?enrollmentId=${data.enrollmentId || 'ENR-CONFIRMED'}&courseId=${course.id}`)
+      }, 1500)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Une erreur est survenue')
       setLoading(false)
@@ -148,9 +168,12 @@ export default function PaymentPage() {
   return (
     <main className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-950">
       <header className="border-b border-slate-700/50">
-        <div className="max-w-6xl mx-auto px-4 py-4">
-          <Link href="/">
-            <Button variant="ghost">Retour à l'accueil</Button>
+        <div className="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between">
+          <Link href={`/courses/${course.id}`}>
+            <Button variant="ghost">Retour au cours</Button>
+          </Link>
+          <Link href="/dashboard" className="text-sm font-medium text-purple-400 hover:text-purple-300">
+            Mon tableau de bord
           </Link>
         </div>
       </header>
@@ -160,28 +183,50 @@ export default function PaymentPage() {
           <div className="lg:col-span-2">
             <div className="mb-8">
               <h1 className="text-4xl font-bold text-white mb-2">Paiement sécurisé</h1>
-              <p className="text-slate-400">Finalisez votre inscription</p>
+              <p className="text-slate-400">Finalisez votre inscription à {course.title}</p>
             </div>
 
-            {success ? (
+            {alreadyEnrolled ? (
+              <div className="bg-purple-950/40 border border-purple-500/40 rounded-2xl p-8 text-center space-y-4 shadow-xl">
+                <CheckCircle2 className="w-16 h-16 text-purple-400 mx-auto" />
+                <h2 className="text-2xl font-bold text-white">Vous possédez déjà ce cours !</h2>
+                <p className="text-slate-300 text-sm max-w-md mx-auto">
+                  Votre compte est déjà inscrit à la formation <strong className="text-purple-300">{course.title}</strong>. Vous n'avez pas besoin de payer à nouveau.
+                </p>
+                <div className="flex flex-col sm:flex-row gap-3 justify-center pt-4">
+                  <Link href={`/courses/${course.id}`}>
+                    <Button className="bg-purple-600 hover:bg-purple-700 text-white font-semibold">
+                      <PlayCircle className="w-4 h-4 mr-2" />
+                      Accéder au cours maintenant
+                    </Button>
+                  </Link>
+                  <Link href="/dashboard">
+                    <Button variant="outline" className="border-slate-700 text-slate-200">
+                      <LayoutDashboard className="w-4 h-4 mr-2" />
+                      Mon tableau de bord
+                    </Button>
+                  </Link>
+                </div>
+              </div>
+            ) : success ? (
               <div className="bg-green-500/10 border border-green-500/50 rounded-xl p-8 text-center">
                 <CheckCircle2 className="w-16 h-16 text-green-400 mx-auto mb-4" />
                 <h2 className="text-2xl font-bold text-green-300 mb-2">Paiement réussi !</h2>
-                <p className="text-green-300/80">Redirection vers votre tableau de bord...</p>
+                <p className="text-green-300/80">Activation de votre cours en cours...</p>
               </div>
             ) : (
               <form onSubmit={handleSubmit} className="space-y-6">
                 {/* Security Badge */}
                 <div className="flex items-center gap-2 p-4 bg-green-500/10 border border-green-500/50 rounded-lg">
                   <Lock className="w-5 h-5 text-green-400" />
-                  <span className="text-green-300 text-sm font-medium">Paiement protégé par SSL</span>
+                  <span className="text-green-300 text-sm font-medium">Paiement protégé par SSL (Banque Populaire / CMI)</span>
                 </div>
 
                 {/* Card Information */}
                 <div className="bg-slate-800/50 p-8 rounded-xl border border-slate-700/50">
                   <h2 className="text-xl font-bold text-white mb-6 flex items-center gap-2">
                     <CreditCard className="w-5 h-5" />
-                    Informations de la carte
+                    Informations de la carte bancaire
                   </h2>
 
                   <div className="space-y-4">
@@ -205,10 +250,10 @@ export default function PaymentPage() {
                         value={formData.cardNumber}
                         onChange={handleChange}
                         className="w-full px-4 py-2 bg-slate-900/50 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-purple-500 font-mono"
-                        placeholder="0000 0000 0000 0000"
+                        placeholder="4532 0000 0000 0000"
                         maxLength={19}
                       />
-                      <p className="text-xs text-slate-500 mt-1">Format: XXXX XXXX XXXX XXXX</p>
+                      <p className="text-xs text-slate-500 mt-1">Format: 16 chiffres</p>
                     </div>
 
                     <div className="grid md:grid-cols-2 gap-4">
@@ -234,7 +279,7 @@ export default function PaymentPage() {
                           value={formData.cvv}
                           onChange={handleChange}
                           className="w-full px-4 py-2 bg-slate-900/50 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-purple-500 font-mono"
-                          placeholder="000"
+                          placeholder="123"
                           maxLength={3}
                         />
                       </div>
@@ -258,7 +303,7 @@ export default function PaymentPage() {
                         value={formData.billingAddress}
                         onChange={handleChange}
                         className="w-full px-4 py-2 bg-slate-900/50 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-purple-500"
-                        placeholder="123 rue de la Paix"
+                        placeholder="123 Avenue Mohammed V"
                       />
                     </div>
 
@@ -298,7 +343,7 @@ export default function PaymentPage() {
 
                 <Button
                   type="submit"
-                  className="w-full bg-purple-600 hover:bg-purple-700 text-white py-3 text-lg"
+                  className="w-full bg-purple-600 hover:bg-purple-700 text-white py-3 text-lg font-semibold shadow-lg shadow-purple-600/30"
                   disabled={loading}
                 >
                   {loading ? (
@@ -321,13 +366,15 @@ export default function PaymentPage() {
 
               <div className="space-y-4 mb-6 pb-6 border-b border-slate-700/50">
                 <div>
-                  <p className="text-sm text-slate-400 mb-1">Cours</p>
+                  <p className="text-sm text-slate-400 mb-1">Cours sélectionné</p>
                   <p className="font-semibold text-white">{course.title}</p>
                 </div>
-                <div>
-                  <p className="text-sm text-slate-400 mb-1">Email</p>
-                  <p className="text-sm text-white font-mono break-all">{email}</p>
-                </div>
+                {email && (
+                  <div>
+                    <p className="text-sm text-slate-400 mb-1">Email étudiant</p>
+                    <p className="text-sm text-white font-mono break-all">{email}</p>
+                  </div>
+                )}
               </div>
 
               <div className="space-y-2 mb-6">
@@ -342,22 +389,22 @@ export default function PaymentPage() {
               </div>
 
               <div className="flex justify-between items-center p-4 bg-slate-900/50 rounded-lg mb-6">
-                <span className="font-semibold text-white">Total</span>
+                <span className="font-semibold text-white">Total à régler</span>
                 <span className="text-2xl font-bold text-purple-400">{course.price} DH</span>
               </div>
 
               <ul className="space-y-3 text-sm">
                 <li className="flex gap-2 text-slate-300">
                   <CheckCircle2 className="w-4 h-4 text-green-400 flex-shrink-0 mt-0.5" />
-                  <span>Paiement sécurisé SSL</span>
+                  <span>Paiement sécurisé CMI / SSL</span>
                 </li>
                 <li className="flex gap-2 text-slate-300">
                   <CheckCircle2 className="w-4 h-4 text-green-400 flex-shrink-0 mt-0.5" />
-                  <span>Accès immédiat au cours</span>
+                  <span>Accès illimité et immédiat au cours</span>
                 </li>
                 <li className="flex gap-2 text-slate-300">
                   <CheckCircle2 className="w-4 h-4 text-green-400 flex-shrink-0 mt-0.5" />
-                  <span>Garantie satisfait ou remboursé</span>
+                  <span>Certificat de réussite inclus</span>
                 </li>
               </ul>
             </div>

@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: edustream-backend
+    runtime: docker
+    plan: free
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    healthCheckPath: /api/courses
+    envVars:
+      - key: PORT
+        value: "8080"
+      - key: ADMIN_PASSWORD
+        sync: false

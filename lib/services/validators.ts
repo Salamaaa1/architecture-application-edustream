@@ -1,44 +1,68 @@
 import { InvalidCardException } from '@/lib/exceptions'
-import { CardData } from '@/lib/types'
+import type { CardData } from '@/lib/types'
+
+const CARD_NUMBER_MIN_LENGTH = 13
+const CARD_NUMBER_MAX_LENGTH = 19
+const MAX_EXPIRY_YEARS_AHEAD = 20
+const NAME_MIN_LENGTH = 3
+const NAME_MAX_LENGTH = 50
 
 export class CardValidator {
-  private static readonly CURRENT_YEAR = new Date().getFullYear()
+  /**
+   * Retourne l'année courante à chaque appel (et non une seule fois au
+   * chargement du module) afin que la validation reste correcte sur un
+   * serveur longue durée et que les tests puissent figer la date.
+   */
+  private static currentYear(): number {
+    return new Date().getFullYear()
+  }
 
+  /** Luhn + longueur 13-19. Seuls les espaces, tirets et points sont tolérés comme séparateurs. */
   static validateCardNumber(cardNumber: string): boolean {
+    if (typeof cardNumber !== 'string') return false
+    if (!/^[\d\s.-]+$/.test(cardNumber)) return false
+
     const digits = cardNumber.replace(/\D/g, '')
-    if (digits.length < 13 || digits.length > 19) return false
+    if (digits.length < CARD_NUMBER_MIN_LENGTH || digits.length > CARD_NUMBER_MAX_LENGTH) {
+      return false
+    }
 
     let sum = 0
-    let isEven = false
+    let doubleIt = false
     for (let i = digits.length - 1; i >= 0; i--) {
-      let digit = parseInt(digits[i], 10)
-      if (isEven) {
+      let digit = Number(digits[i])
+      if (doubleIt) {
         digit *= 2
         if (digit > 9) digit -= 9
       }
       sum += digit
-      isEven = !isEven
+      doubleIt = !doubleIt
     }
     return sum % 10 === 0
   }
 
   static validateExpiry(expiryMonth: number, expiryYear: number): boolean {
+    if (!Number.isInteger(expiryMonth) || !Number.isInteger(expiryYear)) return false
     if (expiryMonth < 1 || expiryMonth > 12) return false
-    if (expiryYear < this.CURRENT_YEAR) return false
-    if (expiryYear === this.CURRENT_YEAR && expiryMonth < new Date().getMonth() + 1) {
-      return false
-    }
-    if (expiryYear > this.CURRENT_YEAR + 20) return false
+
+    const now = new Date()
+    const year = now.getFullYear()
+    if (expiryYear < year) return false
+    if (expiryYear === year && expiryMonth < now.getMonth() + 1) return false
+    if (expiryYear > year + MAX_EXPIRY_YEARS_AHEAD) return false
     return true
   }
 
+  /** Le CVV doit contenir exactement 3 ou 4 chiffres, sans aucun autre caractère. */
   static validateCVV(cvv: string): boolean {
-    const cvvDigits = cvv.replace(/\D/g, '')
-    return cvvDigits.length === 3 || cvvDigits.length === 4
+    if (typeof cvv !== 'string') return false
+    return /^\d{3,4}$/.test(cvv.trim())
   }
 
   static validateCardholderName(name: string): boolean {
-    return name.trim().length >= 3 && name.trim().length <= 50
+    if (typeof name !== 'string') return false
+    const length = name.trim().length
+    return length >= NAME_MIN_LENGTH && length <= NAME_MAX_LENGTH
   }
 
   static validateCardData(cardData: CardData): void {
@@ -46,7 +70,7 @@ export class CardValidator {
       throw new InvalidCardException('Numéro de carte invalide')
     }
     if (!this.validateExpiry(cardData.expiryMonth, cardData.expiryYear)) {
-      throw new InvalidCardException('Date d\'expiration invalide')
+      throw new InvalidCardException("Date d'expiration invalide")
     }
     if (!this.validateCVV(cardData.cvv)) {
       throw new InvalidCardException('CVV invalide')
@@ -59,7 +83,7 @@ export class CardValidator {
   static getCardType(cardNumber: string): string {
     const digits = cardNumber.replace(/\D/g, '')
     if (/^4/.test(digits)) return 'VISA'
-    if (/^5[1-5]/.test(digits)) return 'MASTERCARD'
+    if (/^(5[1-5]|2(22[1-9]|2[3-9]\d|[3-6]\d{2}|7[01]\d|720))/.test(digits)) return 'MASTERCARD'
     if (/^3[47]/.test(digits)) return 'AMEX'
     return 'UNKNOWN'
   }

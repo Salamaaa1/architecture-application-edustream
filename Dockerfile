@@ -3,7 +3,8 @@ FROM node:20-alpine AS deps
 WORKDIR /app
 
 COPY package.json package-lock.json* ./
-RUN npm ci
+# Correction : on nettoie le cache et on utilise --legacy-peer-deps pour éviter le bug de l'arbre de dépendances
+RUN npm cache clean --force && npm install --legacy-peer-deps
 
 # Stage 2: Builder
 FROM node:20-alpine AS builder

@@ -36,16 +36,56 @@ export async function POST(request: NextRequest) {
       const data = await springRes.json()
 
       if (!springRes.ok) {
-        return NextResponse.json({ error: data.error || 'Erreur lors du traitement du paiement' }, { status: springRes.status })
+        const isAlreadyEnrolled = data.code === 'ENROLLMENT_EXISTS' || (data.error && data.error.toLowerCase().includes('déjà inscrit'))
+        return NextResponse.json({
+          error: data.error || 'Erreur lors du traitement du paiement',
+          code: data.code,
+          alreadyEnrolled: isAlreadyEnrolled,
+          courseId: payload.courseId,
+        }, { status: springRes.status })
       }
 
-      return NextResponse.json(data)
+      return NextResponse.json({
+        ...data,
+        courseId: payload.courseId,
+      })
     } catch {
       // Local fallback container
       const container = getServiceContainer()
+      const studentRepo = container.getStudentRepository()
+      const courseRepo = container.getCourseRepository()
+      const enrollmentRepo = container.getEnrollmentRepository()
+
+      let student = await studentRepo.findById(payload.studentId)
+      if (!student && payload.studentEmail) {
+        student = await studentRepo.findByEmail(payload.studentEmail)
+      }
+      if (!student) {
+        student = await studentRepo.create({
+          id: (payload.studentId && !payload.studentId.includes('@')) ? payload.studentId : `std-${Date.now().toString(36)}`,
+          email: payload.studentEmail || `${payload.studentId}@edustream.ma`,
+          firstName: body.firstName || 'Étudiant',
+          lastName: body.lastName || 'EduStream',
+          password: 'pass',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        })
+      }
+
+      // Check existing enrollment
+      const existingEnrollment = await enrollmentRepo.findByStudentAndCourse(student.id, payload.courseId)
+      if (existingEnrollment && existingEnrollment.status === 'completed') {
+        return NextResponse.json({
+          error: `L'étudiant est déjà inscrit au cours ${payload.courseId}`,
+          code: 'ENROLLMENT_EXISTS',
+          alreadyEnrolled: true,
+          courseId: payload.courseId,
+        }, { status: 409 })
+      }
+
       const payment = await container.getPaymentService().processPayment(
         payload.enrollmentId,
-        payload.studentId,
+        student.id,
         payload.courseId,
         payload.amount,
         {
@@ -57,10 +97,28 @@ export async function POST(request: NextRequest) {
         }
       )
 
+      const finalEnrollmentId = existingEnrollment ? existingEnrollment.id : payload.enrollmentId !== 'ENR-AUTO' ? payload.enrollmentId : `enr-${Date.now().toString(36)}`
+      if (existingEnrollment) {
+        await enrollmentRepo.update(existingEnrollment.id, {
+          status: 'completed',
+          paymentId: payment.id,
+        })
+      } else {
+        await enrollmentRepo.create({
+          id: finalEnrollmentId,
+          studentId: student.id,
+          courseId: payload.courseId,
+          status: 'completed',
+          paymentId: payment.id,
+          enrolledAt: new Date(),
+        })
+      }
+
       return NextResponse.json({
         success: true,
-        enrollmentId: payload.enrollmentId,
+        enrollmentId: finalEnrollmentId,
         paymentId: payment.id,
+        courseId: payload.courseId,
         message: 'Paiement traité avec succès',
       })
     }
