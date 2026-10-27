@@ -37,14 +37,48 @@ function getUnleash(): Promise<Unleash | null> {
 
 export type BackendTarget = 'stable' | 'canary'
 
-export async function resolveBackend(): Promise<{ url: string; target: BackendTarget }> {
-  if (!CANARY_URL) return { url: STABLE_URL, target: 'stable' }
+// Health check du canary : on ne l'interroge qu'une fois toutes les HEALTH_TTL_MS,
+// et on ne l'attend pas plus de HEALTH_TIMEOUT_MS. Si le canary est en panne, les
+// visiteurs qui lui etaient destines sont servis par le stable (repli automatique).
+const HEALTH_TTL_MS = 10_000
+const HEALTH_TIMEOUT_MS = 1_500
+
+let canaryHealth: { ok: boolean; at: number } | null = null
+let canaryProbe: Promise<boolean> | null = null
+
+async function isCanaryHealthy(): Promise<boolean> {
+  if (canaryHealth && Date.now() - canaryHealth.at < HEALTH_TTL_MS) return canaryHealth.ok
+
+  // une seule sonde a la fois, partagee par toutes les requetes en cours
+  canaryProbe ??= fetch(`${CANARY_URL}/api/version`, {
+    cache: 'no-store',
+    signal: AbortSignal.timeout(HEALTH_TIMEOUT_MS),
+  })
+    .then((res) => res.ok)
+    .catch(() => false)
+    .then((ok) => {
+      canaryHealth = { ok, at: Date.now() }
+      canaryProbe = null
+      if (!ok) console.error('[canary] backend canary injoignable, repli sur le stable')
+      return ok
+    })
+  return canaryProbe
+}
+
+export async function resolveBackend(): Promise<{
+  url: string
+  target: BackendTarget
+  fallback: boolean
+}> {
+  if (!CANARY_URL) return { url: STABLE_URL, target: 'stable', fallback: false }
 
   const sessionId = (await cookies()).get(SESSION_COOKIE)?.value
   const unleash = await getUnleash()
-  const canary = !!unleash && !!sessionId && unleash.isEnabled(CANARY_FLAG, { sessionId })
+  const wantsCanary = !!unleash && !!sessionId && unleash.isEnabled(CANARY_FLAG, { sessionId })
 
-  return canary ? { url: CANARY_URL, target: 'canary' } : { url: STABLE_URL, target: 'stable' }
+  if (!wantsCanary) return { url: STABLE_URL, target: 'stable', fallback: false }
+  if (!(await isCanaryHealthy())) return { url: STABLE_URL, target: 'stable', fallback: true }
+  return { url: CANARY_URL, target: 'canary', fallback: false }
 }
 
 export async function getBackendUrl(): Promise<string> {

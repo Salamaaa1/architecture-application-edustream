@@ -3,7 +3,7 @@ import { resolveBackend } from '@/lib/backend'
 
 // Indique quel backend (stable ou canary) sert ce visiteur, et sa version.
 export async function GET() {
-  const { url, target } = await resolveBackend()
+  const { url, target, fallback } = await resolveBackend()
   let backendVersion: string | null = null
   try {
     const res = await fetch(`${url}/api/version`, { cache: 'no-store' })
@@ -11,7 +11,7 @@ export async function GET() {
   } catch {}
 
   return NextResponse.json(
-    { target, backendVersion },
+    { target, backendVersion, fallback },
     { headers: { 'X-Backend': target, 'Cache-Control': 'no-store' } }
   )
 }
